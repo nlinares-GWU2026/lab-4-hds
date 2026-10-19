@@ -34,4 +34,5 @@ SELECT sample_id, gene_symbol, COUNT(*) AS n FROM mutations GROUP BY sample_id, 
 - **Verification:** I wrote my predictions (many of which were incorrect by my own logic) and checked them against the commands that Claude sent and their outputs. Claude had the cohort.db file attached to the message.
 
 ## Entry 2: 
-- **What I asked (verbatim):** "Can you help me write a command in sqlite3 that counts the protein-altering mutations in the 5 genes for each patient?" 
+- **What I asked (verbatim):** "Can you help me write a command in sqlite3 that counts the protein-altering mutations (non-silent) in the 5 genes for each patient? I also need a command that will show me the number of unique people that have at least one non-silent mutation in any of those 5 genes (each only counting once) and also which specific genes are hit per person (patient can hit once per gene but count multiple times if they have mutations in different genes). This I will calculate the expected rows off of by calculating `patient_gene_pairs` + (566 - `patients_with_hit`). I then need help writing a .sql file that breaks down this information patient by patient and gene by gene." 
+- **Exact output (verbatim):**
