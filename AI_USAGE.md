@@ -129,3 +129,15 @@ The difference between this number and the count is the number of patients who s
 ### Check-in
 
 Paste the outputs of plus your expected-row calculation. I'll check them against my own run.
+- **Verification:** I ran the first two commands and did my calculations:
+    TP53 = 305
+    KRAS = 172
+    KEAP1 = 103
+    EGFR = 85
+    STK11 = 81
+        Total = 746
+
+    `patients_with_hit` = 457
+    `patient_gene_pairs` = 700
+        Expected rows = 700 + 566 - 457 = 809
+Then I wrote the sql file and ran it. The row count matches my calculations (809). I also ran and compared the `WHERE` version instead of the `ON` version to see the silently dropped 109 patients. The hand checking of patients also checked out. 
