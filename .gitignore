@@ -1,0 +1,28 @@
+# Secrets
+.env
+
+# Jupyter / Python
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# R / RStudio / renv
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+renv/library/
+renv/staging/
+
+# Quarto / knitr build artifacts
+.quarto/
+*_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local data cache (download instructions are in README.md)
+data/
