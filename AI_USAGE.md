@@ -33,7 +33,7 @@ SELECT sample_id, gene_symbol, COUNT(*) AS n FROM mutations GROUP BY sample_id, 
 
 - **Verification:** I wrote my predictions (many of which were incorrect by my own logic) and checked them against the commands that Claude sent and their outputs. Claude had the cohort.db file attached to the message.
 
-## Entry 2: 
+## Entry 2: First query
 - **What I asked (verbatim):** "Can you help me write a command in sqlite3 that counts the protein-altering mutations (non-silent) in the 5 genes for each patient? I also need a command that will show me the number of unique people that have at least one non-silent mutation in any of those 5 genes (each only counting once) and also which specific genes are hit per person (patient can hit once per gene but count multiple times if they have mutations in different genes). This I will calculate the expected rows off of by calculating `patient_gene_pairs` + (566 - `patients_with_hit`). I then need help writing a .sql file that breaks down this information patient by patient and gene by gene." 
 - **Exact output (verbatim):**
 ### Query 1
@@ -141,3 +141,73 @@ Paste the outputs of plus your expected-row calculation. I'll check them against
     `patient_gene_pairs` = 700
         Expected rows = 700 + 566 - 457 = 809
 Then I wrote the sql file and ran it. The row count matches my calculations (809). I also ran and compared the `WHERE` version instead of the `ON` version to see the silently dropped 109 patients. The hand checking of patients also checked out. 
+
+## Entry 3: Second query
+- **What I asked (verbatim):** "Can you write me another sql query script just like the one above that counts patients per tissue source site per tumor stage? Also, can you write me commands like the others to compute expected row count?"
+- **Exact output (verbatim):** 
+### Query 2, patients per tissue source site per tumor stage
+
+**Write Query 2:**
+```bash
+cat > sql/query2_site_stage.sql <<'EOF'
+-- Query 2: number of patients per tissue source site per tumor stage.
+-- Grain of the result: one row per tissue source site x stage combination that occurs.
+-- Starts FROM patients so every patient is counted, including those whose stage is
+--   missing (NULL); GROUP BY keeps NULL-stage patients as their own group within a site.
+-- COUNT(DISTINCT patient_id) counts each patient once, even if a join ever repeated them.
+SELECT s.tissue_source_site,
+       p.stage,
+       COUNT(DISTINCT p.patient_id) AS n_patients
+FROM patients p
+LEFT JOIN samples s
+  ON s.patient_id = p.patient_id
+GROUP BY s.tissue_source_site, p.stage
+ORDER BY s.tissue_source_site, p.stage;
+EOF
+```
+
+**Get an independent expected row count.** This time we compute the expectation a *different way* than `GROUP BY`. List each patient's site and stage as raw lines (one per patient), then let `sort -u` keep only the unique site-stage combinations. The number of lines it leaves is the number of rows Query 2 should return:
+
+```bash
+sqlite3 -csv data/cohort.db "SELECT s.tissue_source_site, p.stage FROM patients p JOIN samples s ON s.patient_id = p.patient_id;" | sort -u | wc -l
+```
+Write that down as your **expected rows**. As a sanity check, the same command without `sort -u |` should print 566, one line per patient:
+```bash
+sqlite3 -csv data/cohort.db "SELECT s.tissue_source_site, p.stage FROM patients p JOIN samples s ON s.patient_id = p.patient_id;" | wc -l
+```
+
+**Run Query 2 and compare:**
+```bash
+sqlite3 -csv data/cohort.db < sql/query2_site_stage.sql | wc -l
+```
+```bash
+sqlite3 -header -column data/cohort.db < sql/query2_site_stage.sql | head -12
+```
+
+**Confirm the missing-stage patients survived.** In CSV output, a blank stage appears as two commas in a row (`,,`), so `grep` can find those rows:
+```bash
+sqlite3 -csv data/cohort.db < sql/query2_site_stage.sql | grep ',,'
+```
+Add up the last-column numbers from those rows by hand, then compare with the number of patients whose stage is missing:
+```bash
+sqlite3 -header -column data/cohort.db "SELECT COUNT(*) AS patients_missing_stage FROM patients WHERE stage IS NULL;"
+```
+They should be equal. Also note how *few* rows the `grep` returns compared to that patient count, and think about what that says about where the missing stages are.
+
+### Check-in
+
+Paste the outputs.
+- **Verification:** I typed out the second sql script Claude generated. Then I ran the two commands to check the expected row counts individually (142 and then 566 without unique) and then ran the `query_2.sql`. The expected rows checked out (both 142). I also verified thath the missing stage patients were kept as Claude suggested:
+```bash 
+"St Joseph's Medical Center (MD)",,1
+"Washington University",,52
+"Washington University - Cleveland Clinic",,1
+```
+```bash
+patients_missing_...
+--------------------
+                  54
+```
+Which 52 + 1 + 1 checks out. 
+
+## Entry 4: 
