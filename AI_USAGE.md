@@ -2,9 +2,7 @@
 
 **Model:** Claude Sonnet 5.5
 
-(Log entries go here: what I asked, what it suggested, what I changed, and how I verified it.)
-
-## Schema exploring
+## Entry 1: Schema exploring
 - **What I asked (verbatim):** "Can you write me commands in the sqlite3 CLI that queries: 1. Can a patient have more than one sample?, 2. Are there orphan samples or samples that matches no patient?, 3. Finds if there are patients with no sample., 4. Finds if there are mutations pointing at a sample that does not exist. 5. Finds if there are mutations pointing at a nonexistent gene., 6. Finds if there are samples with no mutations at all., 7. Describes the grain."
 - **Output (verbatim):** 
 Test the relationships
@@ -33,4 +31,7 @@ SELECT sample_id, gene_symbol, COUNT(*) AS n FROM mutations GROUP BY sample_id, 
 
 .quit
 
-- **Verification:** I wrote my predictions (many of which were incorrect by my own logic) and checked them against the commands that Claude sent and their outputs. Claude had the cohort.db file attached to the message. 
+- **Verification:** I wrote my predictions (many of which were incorrect by my own logic) and checked them against the commands that Claude sent and their outputs. Claude had the cohort.db file attached to the message.
+
+## Entry 2: 
+- **What I asked (verbatim):** "Can you help me write a command in sqlite3 that counts the protein-altering mutations in the 5 genes for each patient?" 
