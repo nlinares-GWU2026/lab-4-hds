@@ -22,13 +22,13 @@ The `cohort.db` is a database built from the TCGA Lung Adenocarcinoma PanCancer 
 - **Columns:**
   - `sample_id`: TCGA sample barcode
   - `patient_id`: TCGA patient barcode (linked to `patients` via `patient_id`
-  - `tissue_source_site`: the coding system of tumor samples Indivumed (TSS code)   
+  - `tissue_source_site`: the name of the site that collected the tumor samples Indivumed (TSS code)   
   - `tmb_nonsynonymous`: the mutational load/burden
   - `aneuploidy_score`: metric that quantifies the global level of chromosomal instability in the tumor sample (chromosomal arm-level copy-number alterations)
   - `msi_mantis_score`: a numeric MANTIS score of microsatellite instability where a higher value means more instability
  
 ### mutations
-- **Grain:** One row is one one somatic mutation in one sample.
+- **Grain:** One row is one somatic mutation in one sample.
 - **Primary key:** `mutation_id`
 - **Foreign keys:** `sample_id` --> `samples`, `gene_symbol` --> `genes`
 - **Columns:**
@@ -57,9 +57,9 @@ The `cohort.db` is a database built from the TCGA Lung Adenocarcinoma PanCancer 
 
 | Relationship | Linking column | Type | What I checked and found |
 |---|---|---|---|
-| patients to samples | `samples.patient_id` | ___ | ___ |
-| samples to mutations | `mutations.sample_id` | ___ | ___ |
-| genes to mutations | `mutations.gene_symbol` | ___ | ___ |
+| patients to samples | `samples.patient_id` | One-to-one | Query 1: no patient has more than 1 sample. Query 2: 0 samples without a matching patient. Query 3: 0 patients without a sample. |
+| samples to mutations | `mutations.sample_id` | One-to-many (0 - many) | Query 4: 0 mutations point to a missing sample. Query 6: 4 samples have no mutations. Query 7: one sample can have many mutation rows.  |
+| genes to mutations | `mutations.gene_symbol` | One-to-many | Query 5: 0 mutations point to a gene missing from `genes`. Query 7: TTN appears in many different samples. |
  
 ## Grain notes
 Query 7 showed some samples have many mutation rows in the same gene. If you want mutations per patient per gene you have to select patients and group by mutations per patient per gene. 
