@@ -453,3 +453,15 @@ Do the gene counts match what Query 1 and your hand-checks said? What do you not
 
 Paste the output of the TMB query, the other **full output**, and the **three commands**.
 - **Verification:** As with the other steps, I ran the commands, checked it against my own predictions made prior (566, 566, 566 and mutation total is 746 before and after the reshape). All 4 tumors without mutation have a tumor mutation burden of 0.0. The 567 lines is the 566 patients plus the header. 
+
+## Entry 5: Data Dictionary Check
+-**What I asked (verbatim):** "Can you confirm or write a command that checks the data dictionary I created against the TSV?" (pasted the dictionary)
+-**Exact output (verbatim):** 
+**Check that the dictionary covers every column**
+
+This loop reads the 11 column names from the first line of your TSV and checks that each one has a row in the dictionary. It prints ok or MISSING for each:
+
+```bash
+for c in $(head -1 outputs/feature_table.tsv); do grep -q -F "| \`$c\` |" DATA_DICTIONARY.md && echo "ok      $c" || echo "MISSING $c"; done
+```
+You should see eleven ok lines. This is the same habit as the row-count checks, applied to documentation: you check it instead of assuming.
