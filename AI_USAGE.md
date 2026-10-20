@@ -210,4 +210,246 @@ patients_missing_...
 ```
 Which 52 + 1 + 1 checks out. 
 
-## Entry 4: 
+## Entry 4: Feature table
+- **What I asked verbatim:** I need to build a feature table with one row per patient (566 rows), with columns for: sex, age at diagnosis, stage, tissue source site, tumor mutation burden, and one column per gene from the above protein-altering mutation count. I need to do this by combining SQL (for the querying and joining) with Python (for reshaping into wide format). It cannot be pure SQL pivoting. Can you walk me through and provide scripts with how this can be done?
+- **Note:** I did not even know where to start with this step so I needed Claude's help for most of it.
+- **Exact output (verbatim):** 
+
+### The Python script, part 1
+
+**The plan.** SQL for the querying and joining, and Python for the reshaping into wide format. We'll use two SQL pieces:
+
+| Piece | Grain (one row is...) | Rows |
+|---|---|---|
+| **Base table** (new Query 3): sex, age, stage, site, TMB | one patient | 566 |
+| **Query 1** (already done): gene counts | one patient × gene (plus patients with no hit) | 809 |
+
+In the next step, Python will reshape Query 1 into one row per patient with a column per gene and attach it to the base table. First we get both pieces loaded and audited.
+
+**Write the base query.** It's a plain `LEFT JOIN` from `patients` to `samples`:
+```bash
+cat > sql/query3_patient_base.sql <<'EOF'
+-- Query 3: one row per patient with the clinical and tumor columns for the feature table.
+-- Grain of the result: one row per patient (566).
+-- LEFT JOIN from patients keeps every patient even if a sample were missing
+--   (none are, but the check is cheap).
+SELECT p.patient_id,
+       p.sex,
+       p.age_at_diagnosis,
+       p.stage,
+       s.tissue_source_site,
+       s.tmb_nonsynonymous
+FROM patients p
+LEFT JOIN samples s
+  ON s.patient_id = p.patient_id
+ORDER BY p.patient_id;
+EOF
+```
+**Predict first:** from what you learned about patients and samples, how many rows should this return? Then check:
+```bash
+sqlite3 -csv data/cohort.db < sql/query3_patient_base.sql | wc -l
+```
+
+**Create the script.** It reads each query from its `.sql` file, so the SQL lives in one place and the Python never duplicates it:
+```bash
+cat > scripts/build_feature_table.py <<'EOF'
+
+import sqlite3
+
+import pandas as pd
+
+DB_PATH = "data/cohort.db"
+BASE_SQL = "sql/query3_patient_base.sql"
+GENE_COUNTS_SQL = "sql/query1_gene_counts.sql"
+GENES = ["TP53", "KRAS", "EGFR", "STK11", "KEAP1"]
+
+
+def run_sql_file(con, path):
+    """Run the query saved in a .sql file and return the result as a DataFrame."""
+    with open(path) as f:
+        return pd.read_sql(f.read(), con)
+
+
+def main():
+    con = sqlite3.connect(DB_PATH)
+
+    n_patients = con.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
+    base = run_sql_file(con, BASE_SQL)
+    gene_counts_long = run_sql_file(con, GENE_COUNTS_SQL)
+    con.close()
+
+    print("Patients in the patients table:", n_patients)
+    print("Rows in base table (query 3):", len(base))
+    print("Rows in long gene-count table (query 1):", len(gene_counts_long))
+    print("Distinct patients in long gene-count table:", gene_counts_long["patient_id"].nunique())
+
+
+if __name__ == "__main__":
+    main()
+EOF
+```
+
+What the pieces do:
+- **Constants at the top** (`DB_PATH`, the `.sql` paths, `GENES`) mean anything that might change is in one visible place. `GENES` is used in the next step.
+- **`run_sql_file`** is a small function that runs a `.sql` file through `pd.read_sql`.
+- **`n_patients`** pulls the "before any joins" patient count straight from the source table.
+
+**Run it from the repo root** (your environment should be active):
+```bash
+python scripts/build_feature_table.py
+```
+You should see four lines. Before running, predict what each number should be. Two of them you've already computed in earlier steps.
+
+**7e. Add a row to `CHECKS.md`** for the base query (fill the blanks in your editor afterward):
+```bash
+cat >> CHECKS.md <<'EOF'
+| Query 3: patient base table | ___ | ___ | ___ |
+EOF
+```
+
+### Check-in
+
+Paste the output of `wc -l`** and the four lines, along with the number you predicted for the base query.
+- **Verification:** I made my predictions about the numbers that would appear and expected row counts 566, 566, 809, 566. I typed up the third query and the python script. I ran the commands and the numbers checked out:
+```bash
+Patients in the patients table: 566
+Rows in base table (query 3:) 566
+Rows in long gene-count table (query 1): 809
+Distinct patients in long gene-count table: 566
+```
+- **What I asked next (verbatim):** I pasted the results (no other context) to Claude and it prompted this:
+- **Exact output (verbatim):** 
+Everything lines up: 566, 566, 809, 566. Your base query returns one row per patient, your Query 1 result covers all 566 patients, and the 809 matches your earlier expectation.
+
+It works on my side, on pandas 3.0.5 and on your pandas 2.2.3 version.
+
+### Zero vs. missing: the decision behind the script
+
+The two kinds of "nothing" in this data mean different things:
+
+- **A zero** means we looked and found no protein-altering mutation in that gene. It's a real, observed value.
+- **An NA** means the value isn't known, as with a missing sex, age, or stage. We never fill those in.
+
+The harder case is the four tumors with no mutation calls at all. Are their gene counts zero or unknown? The database has one clue, so let's check it. **Run this** (it's the same "samples with no mutations" idea as your Query 6, now asking for their tumor mutation burden):
+```bash
+sqlite3 -header -column data/cohort.db "SELECT s.patient_id, s.tmb_nonsynonymous FROM samples s LEFT JOIN mutations m ON m.sample_id = s.sample_id WHERE m.mutation_id IS NULL;"
+```
+Look at the TMB values. The decision I recommend, which the script implements:
+
+- **Gene counts:** a patient with no protein-altering mutation in a gene gets **0**, including those four tumors if their TMB agrees.
+- **Sex, age, stage:** stay **NA**, never filled.
+
+You'll write the reasoning in your own words in the next step. The code comments hold the short version.
+
+### Reshape, merge, check, and write the TSV
+
+**Replace the script with the full version.** (This also fixes the small typo in a print line: `(query 3:)`.)
+```bash
+cat > scripts/build_feature_table.py <<'EOF'
+
+import sqlite3
+
+import pandas as pd
+
+DB_PATH = "data/cohort.db"
+BASE_SQL = "sql/query3_patient_base.sql"
+GENE_COUNTS_SQL = "sql/query1_gene_counts.sql"
+OUTPUT_PATH = "outputs/feature_table.tsv"
+GENES = ["TP53", "KRAS", "EGFR", "STK11", "KEAP1"]
+GENE_COLUMNS = [f"{gene}_count" for gene in GENES]
+
+
+def run_sql_file(con, path):
+    """Run the query saved in a .sql file and return the result as a DataFrame."""
+    with open(path) as f:
+        return pd.read_sql(f.read(), con)
+
+
+def reshape_gene_counts(gene_counts_long):
+    """Reshape (patient, gene, count) rows into one row per patient, one column per gene.
+
+    Query 1 already returns one row per patient and gene, so each cell has exactly
+    one value to place; aggfunc="sum" is only a safeguard against duplicates.
+    Patients with no protein-altering mutation in any of the five genes have no
+    gene to pivot on, so they are absent from this table; the merge adds them back.
+    """
+    wide = gene_counts_long.pivot_table(
+        index="patient_id", columns="gene_symbol", values="n_mutations", aggfunc="sum"
+    )
+    wide = wide.reindex(columns=GENES)  # fixed gene order, even if a gene had no hits
+    wide.columns = GENE_COLUMNS
+    return wide.reset_index()
+
+
+def main():
+    con = sqlite3.connect(DB_PATH)
+    n_patients = con.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
+    base = run_sql_file(con, BASE_SQL)
+    gene_counts_long = run_sql_file(con, GENE_COUNTS_SQL)
+    con.close()
+
+    gene_counts_wide = reshape_gene_counts(gene_counts_long)
+
+    # LEFT merge keeps every patient from the base table.
+    feature_table = base.merge(gene_counts_wide, on="patient_id", how="left")
+
+    # Missing-data rule for gene counts: a patient absent from the wide table had no
+    # protein-altering mutation in these genes, which is a real zero, not "unknown".
+    # Clinical columns (sex, age, stage) are NOT filled: they stay NA.
+    feature_table[GENE_COLUMNS] = feature_table[GENE_COLUMNS].fillna(0).astype(int)
+
+    # Checks: stop with an error if a join lost, repeated, or invented anything.
+    total_long = gene_counts_long["n_mutations"].sum()
+    total_wide = feature_table[GENE_COLUMNS].sum().sum()
+    assert len(feature_table) == n_patients, "patient count changed after the joins"
+    assert feature_table["patient_id"].is_unique, "a patient appears more than once"
+    assert total_wide == total_long, "mutation counts changed during the reshape"
+
+    print("Patient count audit")
+    print(f"  patients table:           {n_patients}")
+    print(f"  after base query:         {len(base)}")
+    print(f"  after adding gene counts: {len(feature_table)}")
+    print("Mutation count audit (protein-altering, five genes)")
+    print(f"  long table total:         {total_long}")
+    print(f"  wide table total:         {total_wide}")
+    print("Missing values (NA) per column")
+    print(feature_table.isna().sum().to_string())
+
+    feature_table.to_csv(OUTPUT_PATH, sep="\t", index=False, na_rep="NA")
+    print(f"Wrote {OUTPUT_PATH}: {feature_table.shape[0]} rows x {feature_table.shape[1]} columns")
+
+
+if __name__ == "__main__":
+    main()
+EOF
+```
+
+**What the new parts do:**
+- **`reshape_gene_counts`** turns the long result (809 rows) into wide format with `pivot_table`. `aggfunc="sum"` is there because `pivot_table` otherwise *averages* duplicates. The SQL already fixed the grain to one row per patient-gene, so it's only insurance. Patients with no hit have a blank gene, so they drop out of the pivot. That's expected, and the merge brings them back.
+- **`how="left"` merge** keeps all 566 base patients, the same left-join habit as in SQL.
+- **`.fillna(0)` is applied only to the five gene columns.** Sex, age, and stage are never touched, which is the rubric's "don't fill in values you made up."
+- **The three `assert` lines** are your "show the check" evidence. The script stops with an error if a join loses a patient, repeats one, or changes the mutation total.
+- **`na_rep="NA"`** writes missing values as the text `NA`, so they're clearly different from a `0`.
+
+**Run it.** Predict first: which columns should show NA counts, and which should show none?
+```bash
+python scripts/build_feature_table.py
+```
+
+**Inspect the TSV.** The line count should be one more than the number of patients, because of the header:
+```bash
+head -4 outputs/feature_table.tsv
+```
+```bash
+wc -l outputs/feature_table.tsv
+```
+Then trace three patients you already know back to your earlier outputs: `TCGA-05-4395` (several genes in your Query 1 output), `TCGA-64-1678` (no mutations), and `TCGA-17-Z023` (the one with a silent TP53 mutation):
+```bash
+grep -E "TCGA-05-4395|TCGA-64-1678|TCGA-17-Z023" outputs/feature_table.tsv
+```
+Do the gene counts match what Query 1 and your hand-checks said? What do you notice about the clinical columns for one of these patients?
+
+### Check-in
+
+Paste the output of the TMB query, the other **full output**, and the **three commands**.
+- **Verification:** As with the other steps, I ran the commands, checked it against my own predictions made prior (566, 566, 566 and mutation total is 746 before and after the reshape). All 4 tumors without mutation have a tumor mutation burden of 0.0. The 567 lines is the 566 patients plus the header. 
